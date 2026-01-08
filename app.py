@@ -158,8 +158,5 @@ if tombol_prediksi:
 # ==========================================
 with st.expander("Lihat Data Training (Cleaned)"):
     st.dataframe(df_clean)
-```
-
----
 
 ### 🎓 Penjelasan Detail untuk Laporan Praktikum
