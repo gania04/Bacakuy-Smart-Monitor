@@ -35,7 +35,6 @@ def load_data():
         res = supabase.table("bacakuy_sales").select("*").execute()
         df = pd.DataFrame(res.data)
         if df.empty: return df
-        # Pastikan data numerik bersih (Gunakan Dollar)
         for col in ['units_sold', 'book_average_rating', 'gross_sale']:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
@@ -54,7 +53,7 @@ def load_data():
 df_raw = load_data()
 
 # =========================================================
-# BAGIAN 1: PREDIKSI MULTIVARIATE (GENRE + UNITS + RATING)
+# BAGIAN 1: PREDIKSI MULTIVARIATE (TANPA RATING DI RUMUS)
 # =========================================================
 st.title("📑 Bacakuy Sales Prediction (USD)")
 col_p1, col_p2 = st.columns([1, 2])
@@ -64,33 +63,39 @@ with col_p1:
     available_genres = sorted(df_raw['genre'].unique()) if not df_raw.empty else ["Fiction"]
     in_g = st.selectbox("Pilih Genre:", available_genres)
     in_u = st.number_input("Target Unit Terjual", value=100, min_value=1)
-    in_r = st.slider("Target Rating", 0.0, 5.0, 4.2)
+    in_r = st.slider("Asumsi Rating Buku", 0.0, 5.0, 4.2) # Sekarang untuk Skor Kepercayaan
     btn_predict = st.button("Hitung Estimasi Pendapatan")
 
 with col_p2:
     if btn_predict and not df_raw.empty:
-        # Menyiapkan Model ML
+        # ML MODEL: Hanya Genre & Units Sold untuk Gross Sale
         le = LabelEncoder()
         df_ml = df_raw.copy()
         df_ml['genre_enc'] = le.fit_transform(df_ml['genre'])
         
-        X = df_ml[['genre_enc', 'units_sold', 'book_average_rating']]
+        X = df_ml[['genre_enc', 'units_sold']] 
         y = df_ml['gross_sale']
-        
         model = LinearRegression().fit(X, y)
         
-        # Prediksi berdasarkan input user
         try:
             g_val = le.transform([in_g])[0]
-            prediction = model.predict([[g_val, in_u, in_r]])[0]
+            prediction = model.predict([[g_val, in_u]])[0]
             prediction = max(0, prediction)
         except:
             prediction = 0
         
-        st.metric(f"Estimasi Gross Sales ({in_g})", f"$ {prediction:,.2f}")
+        # FITUR RATING: Market Confidence Score
+        confidence = "Tinggi" if in_r >= 4.0 else "Sedang" if in_r >= 3.0 else "Rendah"
+        color_conf = "green" if in_r >= 4.0 else "orange" if in_r >= 3.0 else "red"
+
+        c_p1, c_p2 = st.columns(2)
+        c_p1.metric(f"Estimasi Pendapatan ({in_g})", f"$ {prediction:,.2f}")
+        c_p2.markdown(f"**Market Confidence Score:** <span style='color:{color_conf}; font-size:24px;'>{confidence}</span>", unsafe_allow_html=True)
+        st.caption(f"Rating {in_r} menunjukkan tingkat kepercayaan pasar terhadap genre ini.")
         
         try:
-            resp = model_ai.generate_content(f"Berikan strategi marketing global untuk buku {in_g} dengan target pendapatan ${prediction:,.2f}.")
+            prompt = f"Berikan strategi marketing syariah untuk buku genre {in_g} dengan target ${prediction:,.2f} dan rating pelanggan {in_r}."
+            resp = model_ai.generate_content(prompt)
             st.success(resp.text)
         except:
             st.warning("Insight AI Gagal dimuat.")
@@ -98,14 +103,14 @@ with col_p2:
 st.divider()
 
 # =========================================================
-# BAGIAN 2: STRATEGIC HUB (DOLLAR VERSION)
+# BAGIAN 2: STRATEGIC HUB (FITUR TETAP)
 # =========================================================
 st.title("🚀 Strategic Intelligence Hub")
 
 if not df_raw.empty:
     f1, f2 = st.columns(2)
     with f1:
-        sel_genre = st.selectbox("Pilih Genre Dashboard:", ["Semua Genre"] + sorted(list(df_raw['genre'].unique())))
+        sel_genre = st.selectbox("Filter Genre Dashboard:", ["Semua Genre"] + sorted(list(df_raw['genre'].unique())))
     with f2:
         list_bulan = df_raw['bulan_tahun'].unique().tolist()
         sel_month = st.selectbox("Pilih Bulan Transaksi:", ["Semua Bulan"] + list_bulan)
@@ -114,7 +119,7 @@ if not df_raw.empty:
     if sel_genre != "Semua Genre": df = df[df['genre'] == sel_genre]
     if sel_month != "Semua Bulan": df = df[df['bulan_tahun'] == sel_month]
 
-    # KPI Row (Ubah ke Dollar)
+    # KPI Row (Tetap 45.1% sesuai permintaan sebelumnya)
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Market Valuation", f"$ {df['gross_sale'].sum():,.2f}")
     k2.metric("Circulation", f"{df['units_sold'].sum():,.0f} Units")
@@ -137,17 +142,17 @@ if not df_raw.empty:
             st.bar_chart(data=pub_uni, x='publisher', y='units_sold', color="#8B4513")
     
     with t2:
-        st.subheader("Monthly Sales Trend ($)")
+        st.subheader("Monthly Sales Trend ($)") # Fitur Tren Bulanan
         monthly_trend = df.groupby('bulan_tahun')['gross_sale'].sum().reset_index()
         st.area_chart(data=monthly_trend.set_index('bulan_tahun'), color="#A0522D")
     
     with t3:
-        st.subheader("Rating vs Market Popularity")
+        st.subheader("Rating vs Market Popularity") # Fitur Grafik Area Rating vs Populer
         pop_data = df.groupby('genre').agg({'book_average_rating': 'mean', 'units_sold': 'sum'}).reset_index()
         st.area_chart(data=pop_data.set_index('genre'), color=["#5D4037", "#D2B48C"])
 
     with t4:
-        st.subheader("Top Performing Authors")
+        st.subheader("Top Performing Authors") # Fitur Grafik Author
         if 'author' in df.columns:
             author_data = df.groupby('author')['units_sold'].sum().nlargest(10).reset_index()
             st.bar_chart(data=author_data, x='author', y='units_sold', color="#5D4037")
@@ -155,7 +160,7 @@ if not df_raw.empty:
 st.divider()
 
 # =========================================================
-# BAGIAN 3: DATABASE & TAMBAH DATA (Input Dollar)
+# BAGIAN 3: DATABASE
 # =========================================================
 st.title("📁 Database Management")
 tab_view, tab_add = st.tabs(["🗂️ View Table", "➕ Add Record"])
@@ -185,5 +190,5 @@ with tab_add:
                 "units_sold": nu, "book_average_rating": nr, "gross_sale": ns,
                 "tanggal_transaksi": str(ntgl)
             }).execute()
-            st.success("Data Tersimpan dalam USD!")
+            st.success("Data Tersimpan!")
             st.cache_data.clear()
