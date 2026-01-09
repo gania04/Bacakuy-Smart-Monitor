@@ -21,6 +21,10 @@ st.markdown("""
         padding: 15px; border-radius: 12px; text-align: center; font-weight: bold;
         border: 2px solid; margin-top: 10px; font-size: 18px;
     }
+    .profit-box {
+        background-color: #E8F5E9; padding: 15px; border-radius: 12px;
+        border: 1px solid #2E7D32; color: #1B5E20; font-weight: bold;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -54,60 +58,63 @@ def load_data():
 df_raw = load_data()
 
 # =========================================================
-# BAGIAN 1: PREDIKSI HARGA & MARKET DEMAND
+# BAGIAN 1: MARKET & PROFIT PREDICTOR
 # =========================================================
-st.title("📑 Bacakuy Intelligence: Market Predictor")
+st.title("📑 Bacakuy Intelligence: Revenue & Profit")
 col_p1, col_p2 = st.columns([1, 2])
 
 with col_p1:
     st.subheader("🔍 Predictor Input")
     available_genres = sorted(df_raw['genre'].unique()) if not df_raw.empty else ["Fiction"]
-    in_g = st.selectbox("Pilih Genre untuk Analisa:", available_genres)
+    in_g = st.selectbox("Pilih Genre:", available_genres)
     in_u = st.number_input("Target Unit Terjual", value=100, min_value=1)
-    in_p = st.number_input("Harga Jual per Buku ($)", value=5.0, min_value=0.1)
+    in_p = st.number_input("Harga Jual ($)", value=10.0, min_value=0.1)
+    in_c = st.number_input("Modal per Unit ($)", value=4.0, min_value=0.0)
     in_r = st.slider("Asumsi Rating Pelanggan", 0.0, 5.0, 4.2)
-    btn_predict = st.button("Jalankan Analisa Pasar")
+    btn_predict = st.button("Jalankan Analisa Keuntungan")
 
 with col_p2:
     if btn_predict:
-        # 1. HITUNG GROSS SALE (PASTI)
+        # 1. HITUNGAN FINANSIAL
         final_gross = in_u * in_p
+        total_cost = in_u * in_c
+        final_profit = final_gross - total_cost
+        margin = (final_profit / final_gross * 100) if final_gross > 0 else 0
         
-        # 2. PREDIKSI MARKET DEMAND (Berdasarkan Data Historis Genre)
-        # Menghitung rata-rata unit terjual untuk genre terpilih sebagai acuan demand
+        # 2. MARKET DEMAND
         avg_demand = df_raw[df_raw['genre'] == in_g]['units_sold'].mean() if not df_raw.empty else 0
         demand_status = "Tinggi" if in_u <= avg_demand else "Menantang"
         
-        # 3. MARKET CONFIDENCE
-        if in_r >= 4.5:
-            c_lab, c_col = "EXCELLENT", "#2E7D32"
-        elif in_r >= 3.5:
-            c_lab, c_col = "GOOD", "#F9A825"
-        else:
-            c_lab, c_col = "AT RISK", "#C62828"
+        # TAMPILAN METRIK
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Gross Sale", f"$ {final_gross:,.2f}")
+        m2.metric("Net Profit (Laba)", f"$ {final_profit:,.2f}", f"{margin:.1f}% Margin")
+        m3.metric("Market Demand", demand_status)
 
-        cp1, cp2 = st.columns(2)
-        cp1.metric("Estimasi Total Penjualan", f"$ {final_gross:,.2f}")
-        cp2.metric("Market Demand", demand_status, f"Avg: {avg_demand:.0f} units")
-        
+        # STATUS KUALITAS
+        if in_r >= 4.5: c_lab, c_col = "EXCELLENT", "#2E7D32"
+        elif in_r >= 3.5: c_lab, c_col = "GOOD", "#F9A825"
+        else: c_lab, c_col = "AT RISK", "#C62828"
+
         st.markdown(f"""
             <div class="confidence-box" style="background-color: {c_col}22; border-color: {c_col}; color: {c_col};">
-                STATUS KUALITAS: {c_lab} (Rating: {in_r})
+                MARKET CONFIDENCE: {c_lab} (Rating: {in_r})
             </div>
         """, unsafe_allow_html=True)
-        st.caption(f"Hasil di atas dihitung berdasarkan target {in_u} unit pada harga ${in_p}.")
+        
+        st.info(f"💡 Dari total Gross Sale ${final_gross:,.2f}, Anda mendapatkan laba bersih ${final_profit:,.2f} setelah dipotong modal ${total_cost:,.2f}.")
 
 st.divider()
 
 # =========================================================
-# BAGIAN 2: STRATEGIC HUB (SEMUA FITUR TETAP)
+# BAGIAN 2: STRATEGIC HUB (STRUKTUR TETAP)
 # =========================================================
 st.title("🚀 Strategic Intelligence Hub")
 
 if not df_raw.empty:
     f1, f2 = st.columns(2)
     with f1:
-        sel_genre = st.selectbox("Filter Dashboard:", ["Semua Genre"] + sorted(list(df_raw['genre'].unique())))
+        sel_genre = st.selectbox("Filter Genre:", ["Semua Genre"] + sorted(list(df_raw['genre'].unique())))
     with f2:
         list_bulan = df_raw['bulan_tahun'].unique().tolist()
         sel_month = st.selectbox("Filter Bulan:", ["Semua Bulan"] + list_bulan)
@@ -117,25 +124,28 @@ if not df_raw.empty:
     if sel_month != "Semua Bulan": df = df[df['bulan_tahun'] == sel_month]
 
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Market Valuation", f"$ {df['gross_sale'].sum():,.2f}")
+    k1.metric("Market Valuation (Gross Sale)", f"$ {df['gross_sale'].sum():,.2f}")
     k2.metric("Circulation", f"{df['units_sold'].sum():,.0f} Units")
     k3.metric("Profitability Index", "45.1%", "Rev/Gross")
     k4.metric("Brand Loyalty", f"{df['book_average_rating'].mean():.2f}/5")
 
+    # TABS GRAFIK
     t1, t2, t3, t4 = st.tabs(["📊 Performance", "📈 Monthly Trend", "🎯 Popularity", "✍️ Author"])
     
     with t1:
         st.subheader("Publisher Performance")
         col_g1, col_g2 = st.columns(2)
         with col_g1:
+            st.write("**Gross Sale by Publisher ($)**")
             pub_rev = df.groupby('publisher')['gross_sale'].sum().nlargest(5).reset_index()
             st.bar_chart(data=pub_rev, x='publisher', y='gross_sale', color="#D2B48C")
         with col_g2:
+            st.write("**Units Sold by Publisher**")
             pub_uni = df.groupby('publisher')['units_sold'].sum().nlargest(5).reset_index()
             st.bar_chart(data=pub_uni, x='publisher', y='units_sold', color="#8B4513")
     
     with t2:
-        st.subheader("Monthly Sales Trend ($)")
+        st.subheader("Monthly Gross Sale Trend ($)")
         monthly_trend = df.groupby('bulan_tahun')['gross_sale'].sum().reset_index()
         st.area_chart(data=monthly_trend.set_index('bulan_tahun'), color="#A0522D")
     
@@ -153,7 +163,7 @@ if not df_raw.empty:
 st.divider()
 
 # =========================================================
-# BAGIAN 3: DATABASE (DENGAN HITUNG OTOMATIS)
+# BAGIAN 3: DATABASE
 # =========================================================
 st.title("📁 Database Management")
 tab_view, tab_add = st.tabs(["🗂️ View Table", "➕ Add Record"])
@@ -169,7 +179,7 @@ with tab_add:
         with c1:
             nt = st.text_input("Judul Buku")
             na = st.text_input("Author")
-            ng = st.selectbox("Genre Buku", sorted(df_raw['genre'].unique()) if not df_raw.empty else ["Fiction"])
+            ng = st.selectbox("Genre", sorted(df_raw['genre'].unique()) if not df_raw.empty else ["Fiction"])
             np = st.text_input("Publisher")
         with c2:
             nu = st.number_input("Units Sold", min_value=0)
@@ -178,7 +188,7 @@ with tab_add:
             ntgl = st.date_input("Tanggal")
         
         calc_gross = nu * n_price
-        st.info(f"Otomatis Terhitung (Gross Sale): $ {calc_gross:,.2f}")
+        st.info(f"Gross Sale Otomatis: $ {calc_gross:,.2f}")
 
         if st.form_submit_button("Simpan Data"):
             supabase.table("bacakuy_sales").insert({
