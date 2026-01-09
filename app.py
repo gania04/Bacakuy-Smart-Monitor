@@ -5,8 +5,8 @@ from sklearn.linear_model import LinearRegression
 import google.generativeai as genai
 from supabase import create_client
 
-# --- 1. CONFIG & EARTH TONE THEME ---
-st.set_page_config(page_title="Bacakuy Strategic Monitor", layout="wide")
+# --- 1. CONFIG & THEME (Earthtone) ---
+st.set_page_config(page_title="Bacakuy Intelligence PRO", layout="wide")
 
 st.markdown("""
     <style>
@@ -20,121 +20,138 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. INITIALIZATION ---
+# --- 2. INITIALIZATION & DATA LOADING ---
 try:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
     supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
     model_ai = genai.GenerativeModel('gemini-1.5-flash')
 except Exception as e:
-    st.error(f"Koneksi Gagal: {e}")
+    st.error(f"Konfigurasi Error: {e}")
 
 @st.cache_data(ttl=60)
 def load_data():
     try:
         res = supabase.table("bacakuy_sales").select("*").execute()
         df = pd.DataFrame(res.data)
-        # Pastikan kolom angka bersih dan akurat
+        # Konversi tipe data dengan aman
         for col in ['units_sold', 'book_average_rating', 'gross_sale']:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '.'), errors='coerce')
+        
+        # Tambahkan kolom Tahun simulasi jika belum ada untuk fitur Filter Tahun
+        if 'year' not in df.columns:
+            df['year'] = 2024 
+        
         return df.dropna(subset=['gross_sale']).reset_index(drop=True)
     except:
         return pd.DataFrame()
 
-df = load_data()
+df_raw = load_data()
 
 # =========================================================
 # BAGIAN 1: PREDIKSI & AI INSIGHT (DI ATAS)
 # =========================================================
 st.title("📑 Bacakuy Sales Prediction & AI Analysis")
-col_input, col_result = st.columns([1, 2])
+col_p1, col_p2 = st.columns([1, 2])
 
-with col_input:
+with col_p1:
     st.subheader("🔍 AI Sales Predictor")
-    target_u = st.number_input("Unit Terjual", value=100, min_value=1)
-    target_r = st.slider("Rating Buku", 0.0, 5.0, 4.20)
-    calc_btn = st.button("Hitung Prediksi & Strategi")
+    in_u = st.number_input("Unit Terjual", value=100, min_value=1)
+    in_r = st.slider("Rating Buku", 0.0, 5.0, 4.2)
+    btn_predict = st.button("Hitung & Dapatkan Insight")
 
-with col_result:
-    if calc_btn and not df.empty:
-        # Logika Prediksi Linear Regression
-        X_reg = df[['units_sold', 'book_average_rating']]
-        y_reg = df['gross_sale']
-        model_reg = LinearRegression().fit(X_reg, y_reg)
-        pred_val = model_reg.predict([[target_u, target_r]])[0]
+with col_p2:
+    if btn_predict and not df_raw.empty:
+        # Perbaikan Model Regresi
+        X = df_raw[['units_sold', 'book_average_rating']]
+        y = df_raw['gross_sale']
+        model = LinearRegression().fit(X, y)
+        prediction = model.predict([[in_u, in_r]])[0]
         
-        st.metric("Estimasi Gross Sales", f"Rp {pred_val:,.0f}")
+        st.metric("Estimasi Gross Sales", f"Rp {prediction:,.0f}")
         
-        with st.spinner("AI menyusun strategi..."):
-            try:
-                prompt = f"Berikan 1 strategi marketing syariah untuk target sales Rp {pred_val:,.0f}"
-                response = model_ai.generate_content(prompt)
-                st.success(response.text)
-            except:
-                st.warning("Insight AI Gagal (404). Silakan Reboot aplikasi.")
-    else:
-        st.info("Gunakan panel kiri untuk memulai simulasi.")
+        try:
+            resp = model_ai.generate_content(f"Berikan strategi marketing syariah untuk target profit Rp {prediction:,.0f}")
+            st.success(resp.text)
+        except:
+            st.warning("Insight AI Gagal (404). Pastikan kunci API aktif.")
 
 st.divider()
 
 # =========================================================
-# BAGIAN 2: KPI & GRAFIK (ALA GOOGLE AI STUDIO)
+# BAGIAN 2: STRATEGIC HUB (KPI & 3 GRAFIK)
 # =========================================================
 st.title("🚀 Strategic Intelligence Hub")
 
-if not df.empty:
-    # KPI Row - Referensi Google AI Studio
+if not df_raw.empty:
+    # FILTER DROPDOWN: Genre & Tahun (Sesuai Permintaan)
+    f1, f2 = st.columns(2)
+    with f1:
+        sel_genre = st.selectbox("Pilih Genre:", ["Semua Genre"] + sorted(list(df_raw['genre'].unique())))
+    with f2:
+        sel_year = st.selectbox("Pilih Tahun:", ["Semua Tahun"] + sorted(list(df_raw['year'].unique())))
+
+    # Apply Filter
+    df = df_raw.copy()
+    if sel_genre != "Semua Genre":
+        df = df[df['genre'] == sel_genre]
+    if sel_year != "Semua Tahun":
+        df = df[df['year'] == sel_year]
+
+    # KPI Row (Google AI Studio Style)
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Market Valuation", f"Rp {df['gross_sale'].sum():,.0f}")
     k2.metric("Circulation", f"{df['units_sold'].sum():,.0f}")
     k3.metric("Profitability Index", "45.1%", "Rev/Gross") #
     k4.metric("Brand Loyalty", f"{df['book_average_rating'].mean():.2f}/5")
 
-    # Grafik Multivariat
-    g_tab1, g_tab2 = st.tabs(["📊 Performance Intelligence", "📈 Operational Trends"])
+    # 3 Grafik Utama (Fix Unrecognized Data Error)
+    t1, t2, t3 = st.tabs(["📊 Performa Publisher", "📈 Tren Gross Sales", "🎯 Hubungan Rating"])
     
-    with g_tab1:
-        col_g1, col_g2 = st.columns(2)
-        with col_g1:
-            st.subheader("Units Sold by Genre") #
-            st.bar_chart(df.groupby('genre')['units_sold'].sum(), color="#D2B48C")
-        with col_g2:
-            st.subheader("Top Publishers Revenue") #
-            top_pub = df.groupby('publisher')['gross_sale'].sum().nlargest(5)
-            st.bar_chart(top_pub, color="#BC8F8F")
-            
-    with g_tab2:
-        st.subheader("Monthly Sales Trend") #
-        st.area_chart(df['gross_sale'], color="#8B4513")
+    with t1:
+        st.subheader("Top 5 Publisher Performance")
+        # Reset index untuk menghindari 'Unrecognized data set'
+        pub_data = df.groupby('publisher')['gross_sale'].sum().nlargest(5).reset_index()
+        st.bar_chart(data=pub_data, x='publisher', y='gross_sale', color="#D2B48C")
+    
+    with t2:
+        st.subheader("Operational Revenue Trend")
+        st.line_chart(df['gross_sale'].reset_index(drop=True), color="#8B4513")
+    
+    with t3:
+        st.subheader("Rating vs Units Sold Correlation")
+        st.scatter_chart(df, x='book_average_rating', y='units_sold', color="#A0522D")
 
 st.divider()
 
 # =========================================================
-# BAGIAN 3: DATABASE EXPLORER (PALING BAWAH)
+# BAGIAN 3: DATABASE & TAMBAH DATA (DI PALING BAWAH)
 # =========================================================
 st.title("📁 Database Management")
-tab_view, tab_add = st.tabs(["🗂️ View Supabase Data", "➕ Add New Record"])
+tab_view, tab_add = st.tabs(["🗂️ View Table", "➕ Add Record"])
 
 with tab_view:
-    # Menampilkan tabel data clean secara transparan
-    st.dataframe(df, use_container_width=True)
+    # Fitur Show/Hide Table (Sesuai Permintaan)
+    show_data = st.checkbox("Show Database Table", value=False)
+    if show_data:
+        st.dataframe(df_raw, use_container_width=True)
 
 with tab_add:
-    with st.form("input_baru"):
+    with st.form("add_form"):
         c1, c2 = st.columns(2)
         with c1:
-            in_t = st.text_input("Judul Buku")
-            in_g = st.selectbox("Genre", df['genre'].unique() if not df.empty else ["General"])
-            in_p = st.text_input("Publisher")
+            nt = st.text_input("Judul Buku")
+            ng = st.selectbox("Genre", df_raw['genre'].unique() if not df_raw.empty else ["Fiction"])
+            np = st.text_input("Publisher")
         with c2:
-            in_u = st.number_input("Units Sold", min_value=0)
-            in_r = st.number_input("Avg Rating", 0.0, 5.0)
-            in_s = st.number_input("Gross Sale", min_value=0)
+            nu = st.number_input("Units Sold", min_value=0)
+            nr = st.number_input("Rating", 0.0, 5.0)
+            ns = st.number_input("Gross Sale", min_value=0)
         
-        if st.form_submit_button("Submit ke Supabase"):
+        if st.form_submit_button("Simpan Data"):
             supabase.table("bacakuy_sales").insert({
-                "book_title": in_t, "genre": in_g, "publisher": in_p,
-                "units_sold": in_u, "book_average_rating": in_r, "gross_sale": in_s
+                "book_title": nt, "genre": ng, "publisher": np,
+                "units_sold": nu, "book_average_rating": nr, "gross_sale": ns
             }).execute()
-            st.success("Berhasil! Refresh halaman untuk update.")
+            st.success("Data Berhasil Masuk!")
             st.cache_data.clear()
