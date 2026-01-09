@@ -4,6 +4,7 @@ import numpy as np
 from sklearn.linear_model import LinearRegression
 import google.generativeai as genai
 from supabase import create_client
+from datetime import datetime
 
 # --- 1. CONFIG & THEME (Earthtone) ---
 st.set_page_config(page_title="Bacakuy Intelligence PRO", layout="wide")
@@ -33,15 +34,19 @@ def load_data():
     try:
         res = supabase.table("bacakuy_sales").select("*").execute()
         df = pd.DataFrame(res.data)
-        # Konversi tipe data dengan aman
+        
+        # Konversi tipe data numerik
         for col in ['units_sold', 'book_average_rating', 'gross_sale']:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '.'), errors='coerce')
         
-        # Tambahkan kolom Tahun simulasi jika belum ada untuk fitur Filter Tahun
-        if 'year' not in df.columns:
-            df['year'] = 2024 
-        
+        # Konversi kolom tanggal (pastikan kolom 'created_at' atau 'date' ada di Supabase)
+        if 'created_at' in df.columns:
+            df['date'] = pd.to_datetime(df['created_at']).dt.date
+        else:
+            # Jika tidak ada kolom tanggal, buat tanggal dummy agar filter date tidak error
+            df['date'] = pd.to_datetime("2024-01-01").date()
+            
         return df.dropna(subset=['gross_sale']).reset_index(drop=True)
     except:
         return pd.DataFrame()
@@ -62,7 +67,6 @@ with col_p1:
 
 with col_p2:
     if btn_predict and not df_raw.empty:
-        # Perbaikan Model Regresi
         X = df_raw[['units_sold', 'book_average_rating']]
         y = df_raw['gross_sale']
         model = LinearRegression().fit(X, y)
@@ -74,53 +78,62 @@ with col_p2:
             resp = model_ai.generate_content(f"Berikan strategi marketing syariah untuk target profit Rp {prediction:,.0f}")
             st.success(resp.text)
         except:
-            st.warning("Insight AI Gagal (404). Pastikan kunci API aktif.")
+            st.warning("Insight AI Gagal (404).")
 
 st.divider()
 
 # =========================================================
-# BAGIAN 2: STRATEGIC HUB (KPI & 3 GRAFIK)
+# BAGIAN 2: STRATEGIC HUB (KPI & 3 TAB GRAFIK)
 # =========================================================
 st.title("🚀 Strategic Intelligence Hub")
 
 if not df_raw.empty:
-    # FILTER DROPDOWN: Genre & Tahun (Sesuai Permintaan)
+    # FILTER: Genre & Date Range (GANTI DARI TAHUN KE TANGGAL)
     f1, f2 = st.columns(2)
     with f1:
         sel_genre = st.selectbox("Pilih Genre:", ["Semua Genre"] + sorted(list(df_raw['genre'].unique())))
     with f2:
-        sel_year = st.selectbox("Pilih Tahun:", ["Semua Tahun"] + sorted(list(df_raw['year'].unique())))
+        # Pemilih rentang tanggal
+        date_range = st.date_input("Pilih Rentang Tanggal:", 
+                                   [df_raw['date'].min(), df_raw['date'].max()])
 
     # Apply Filter
     df = df_raw.copy()
     if sel_genre != "Semua Genre":
         df = df[df['genre'] == sel_genre]
-    if sel_year != "Semua Tahun":
-        df = df[df['year'] == sel_year]
+    
+    if len(date_range) == 2:
+        df = df[(df['date'] >= date_range[0]) & (df['date'] <= date_range[1])]
 
-    # KPI Row (Google AI Studio Style)
+    # KPI Row
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Market Valuation", f"Rp {df['gross_sale'].sum():,.0f}")
     k2.metric("Circulation", f"{df['units_sold'].sum():,.0f}")
-    k3.metric("Profitability Index", "45.1%", "Rev/Gross") #
+    k3.metric("Profitability Index", "45.1%", "Rev/Gross")
     k4.metric("Brand Loyalty", f"{df['book_average_rating'].mean():.2f}/5")
 
-    # 3 Grafik Utama (Fix Unrecognized Data Error)
-    t1, t2, t3 = st.tabs(["📊 Performa Publisher", "📈 Tren Gross Sales", "🎯 Hubungan Rating"])
+    # TABS GRAFIK
+    t1, t2, t3 = st.tabs(["📊 Performance Intelligence", "📈 Tren Penjualan", "🎯 Korelasi"])
     
     with t1:
-        st.subheader("Top 5 Publisher Performance")
-        # Reset index untuk menghindari 'Unrecognized data set'
-        pub_data = df.groupby('publisher')['gross_sale'].sum().nlargest(5).reset_index()
-        st.bar_chart(data=pub_data, x='publisher', y='gross_sale', color="#D2B48C")
+        st.subheader("Publisher & Sales Performance")
+        col_g1, col_g2 = st.columns(2)
+        with col_g1:
+            st.write("**Top 5 Publisher (Revenue)**")
+            pub_revenue = df.groupby('publisher')['gross_sale'].sum().nlargest(5).reset_index()
+            st.bar_chart(data=pub_revenue, x='publisher', y='gross_sale', color="#D2B48C")
+        with col_g2:
+            st.write("**Units Sold by Publisher**")
+            pub_units = df.groupby('publisher')['units_sold'].sum().nlargest(5).reset_index()
+            st.bar_chart(data=pub_units, x='publisher', y='units_sold', color="#8B4513")
     
     with t2:
         st.subheader("Operational Revenue Trend")
-        st.line_chart(df['gross_sale'].reset_index(drop=True), color="#8B4513")
+        st.area_chart(df['gross_sale'].reset_index(drop=True), color="#A0522D")
     
     with t3:
-        st.subheader("Rating vs Units Sold Correlation")
-        st.scatter_chart(df, x='book_average_rating', y='units_sold', color="#A0522D")
+        st.subheader("Rating vs Units Correlation")
+        st.scatter_chart(df, x='book_average_rating', y='units_sold', color="#5D4037")
 
 st.divider()
 
@@ -131,7 +144,6 @@ st.title("📁 Database Management")
 tab_view, tab_add = st.tabs(["🗂️ View Table", "➕ Add Record"])
 
 with tab_view:
-    # Fitur Show/Hide Table (Sesuai Permintaan)
     show_data = st.checkbox("Show Database Table", value=False)
     if show_data:
         st.dataframe(df_raw, use_container_width=True)
