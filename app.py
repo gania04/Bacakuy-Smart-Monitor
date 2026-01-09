@@ -5,7 +5,7 @@ from sklearn.linear_model import LinearRegression
 import google.generativeai as genai
 from supabase import create_client
 
-# --- 1. CONFIG & THEME (Earthtone) ---
+# --- 1. CONFIG & THEME ---
 st.set_page_config(page_title="Bacakuy Intelligence Hub", layout="wide")
 
 st.markdown("""
@@ -20,7 +20,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. INITIALIZATION & DATA LOADING ---
+# --- 2. INITIALIZATION ---
 try:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
     supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
@@ -33,16 +33,11 @@ def load_data():
     try:
         res = supabase.table("bacakuy_sales").select("*").execute()
         df = pd.DataFrame(res.data)
-        
-        if df.empty:
-            return df
-
-        # Pembersihan Tipe Data Numerik
+        if df.empty: return df
         for col in ['units_sold', 'book_average_rating', 'gross_sale']:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '.'), errors='coerce')
         
-        # Penanganan Tanggal untuk Dropdown Bulan
         target_date_col = 'tanggal_transaksi' if 'tanggal_transaksi' in df.columns else 'created_at'
         if target_date_col in df.columns:
             df['dt_temp'] = pd.to_datetime(df[target_date_col])
@@ -50,10 +45,8 @@ def load_data():
             df = df.sort_values('dt_temp')
         else:
             df['bulan_tahun'] = "No Date"
-            
         return df.dropna(subset=['gross_sale']).reset_index(drop=True)
     except Exception as e:
-        st.error(f"Gagal memuat data: {e}")
         return pd.DataFrame()
 
 df_raw = load_data()
@@ -76,9 +69,7 @@ with col_p2:
         y = df_raw['gross_sale']
         model = LinearRegression().fit(X, y)
         prediction = model.predict([[in_u, in_r]])[0]
-        
         st.metric("Estimasi Gross Sales", f"Rp {prediction:,.0f}")
-        
         try:
             resp = model_ai.generate_content(f"Berikan strategi marketing syariah untuk target profit Rp {prediction:,.0f}")
             st.success(resp.text)
@@ -88,12 +79,11 @@ with col_p2:
 st.divider()
 
 # =========================================================
-# BAGIAN 2: STRATEGIC HUB (DENGAN PROFIT INDEX DINAMIS)
+# BAGIAN 2: STRATEGIC HUB (KPI STATIS & GRAFIK FILTER)
 # =========================================================
 st.title("🚀 Strategic Intelligence Hub")
 
 if not df_raw.empty:
-    # FILTER DROPDOWN
     f1, f2 = st.columns(2)
     with f1:
         sel_genre = st.selectbox("Pilih Genre:", ["Semua Genre"] + sorted(list(df_raw['genre'].unique())))
@@ -101,39 +91,19 @@ if not df_raw.empty:
         list_bulan = df_raw['bulan_tahun'].unique().tolist()
         sel_month = st.selectbox("Pilih Bulan Transaksi:", ["Semua Bulan"] + list_bulan)
 
-    # Proses Filter
     df = df_raw.copy()
-    if sel_genre != "Semua Genre":
-        df = df[df['genre'] == sel_genre]
-    if sel_month != "Semua Bulan":
-        df = df[df['bulan_tahun'] == sel_month]
+    if sel_genre != "Semua Genre": df = df[df['genre'] == sel_genre]
+    if sel_month != "Semua Bulan": df = df[df['bulan_tahun'] == sel_month]
 
-    # --- LOGIKA PROFITABILITY INDEX TERINTEGRASI ---
-    # Menghitung PI berdasarkan data yang difilter (Revenue / Units)
-    total_revenue = df['gross_sale'].sum()
-    total_units = df['units_sold'].sum()
-    
-    # PI Dinamis: Kita asumsikan benchmark awal adalah 45.1% 
-    # Jika revenue per unit naik, maka PI akan naik secara proporsional
-    if total_units > 0:
-        base_efficiency = (total_revenue / total_units) / 100000 # Normalisasi ke angka presentase
-        dynamic_pi = min(base_efficiency * 10, 100.0) # Cap di 100%
-    else:
-        dynamic_pi = 0.0
-
-    # KPI Row
+    # KPI Row (Profitability Index Kembali Statis 45.1%)
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Market Valuation", f"Rp {total_revenue:,.0f}")
-    k2.metric("Circulation", f"{total_units:,.0f}")
-    
-    # PROFITABILITY INDEX SEKARANG BERUBAH SESUAI FILTER
-    k3.metric("Profitability Index", f"{dynamic_pi:.1f}%", delta=f"{dynamic_pi - 45.1:.1f}% vs Bench")
-    
+    k1.metric("Market Valuation", f"Rp {df['gross_sale'].sum():,.0f}")
+    k2.metric("Circulation", f"{df['units_sold'].sum():,.0f}")
+    k3.metric("Profitability Index", "45.1%", "Rev/Gross") # Kembali Statis
     k4.metric("Brand Loyalty", f"{df['book_average_rating'].mean():.2f}/5")
 
     # TABS GRAFIK
     t1, t2, t3 = st.tabs(["📊 Performance Intelligence", "📈 Tren Penjualan", "🎯 Korelasi"])
-    
     with t1:
         st.subheader("Publisher & Sales Performance")
         col_g1, col_g2 = st.columns(2)
@@ -145,11 +115,9 @@ if not df_raw.empty:
             st.write("**Units Sold by Publisher**")
             pub_units = df.groupby('publisher')['units_sold'].sum().nlargest(5).reset_index()
             st.bar_chart(data=pub_units, x='publisher', y='units_sold', color="#8B4513")
-    
     with t2:
         st.subheader("Operational Revenue Trend")
         st.area_chart(df.reset_index()['gross_sale'], color="#A0522D")
-    
     with t3:
         st.subheader("Rating vs Units Correlation")
         st.scatter_chart(df, x='book_average_rating', y='units_sold', color="#5D4037")
@@ -172,19 +140,14 @@ with tab_add:
         c1, c2 = st.columns(2)
         with c1:
             nt = st.text_input("Judul Buku")
-            ng = st.selectbox("Genre", sorted(df_raw['genre'].unique()) if not df_raw.empty else ["Fiction"])
+            ng = st.selectbox("Genre", sorted(df_raw['genre'].unique()) if not df_raw.empty else ["Umum"])
             np = st.text_input("Publisher")
         with c2:
             nu = st.number_input("Units Sold", min_value=0)
             nr = st.number_input("Rating", 0.0, 5.0)
             ns = st.number_input("Gross Sale", min_value=0)
             ntgl = st.date_input("Tanggal Transaksi")
-        
         if st.form_submit_button("Simpan Data"):
-            supabase.table("bacakuy_sales").insert({
-                "book_title": nt, "genre": ng, "publisher": np,
-                "units_sold": nu, "book_average_rating": nr, "gross_sale": ns,
-                "tanggal_transaksi": str(ntgl)
-            }).execute()
-            st.success("Data Berhasil Disimpan!")
+            supabase.table("bacakuy_sales").insert({"book_title": nt, "genre": ng, "publisher": np, "units_sold": nu, "book_average_rating": nr, "gross_sale": ns, "tanggal_transaksi": str(ntgl)}).execute()
+            st.success("Data Tersimpan!")
             st.cache_data.clear()
