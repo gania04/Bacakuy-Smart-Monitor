@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from sklearn.linear_model import LinearRegression
-from sklearn.preprocessing import LabelEncoder # Untuk mengubah teks genre jadi angka agar dipahami AI
+from sklearn.preprocessing import LabelEncoder
 import google.generativeai as genai
 from supabase import create_client
 
@@ -35,6 +35,7 @@ def load_data():
         res = supabase.table("bacakuy_sales").select("*").execute()
         df = pd.DataFrame(res.data)
         if df.empty: return df
+        # Pastikan data numerik bersih (Gunakan Dollar)
         for col in ['units_sold', 'book_average_rating', 'gross_sale']:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
@@ -53,62 +54,58 @@ def load_data():
 df_raw = load_data()
 
 # =========================================================
-# BAGIAN 1: PREDIKSI & AI INSIGHT (SEKARANG DENGAN GENRE)
+# BAGIAN 1: PREDIKSI MULTIVARIATE (GENRE + UNITS + RATING)
 # =========================================================
-st.title("📑 Bacakuy Sales Prediction & AI Analysis")
+st.title("📑 Bacakuy Sales Prediction (USD)")
 col_p1, col_p2 = st.columns([1, 2])
 
 with col_p1:
     st.subheader("🔍 AI Sales Predictor")
-    # Input tambahan: Genre
-    available_genres = sorted(df_raw['genre'].unique()) if not df_raw.empty else ["Umum"]
-    in_g = st.selectbox("Pilih Genre untuk Prediksi:", available_genres)
-    in_u = st.number_input("Unit Terjual", value=100, min_value=1)
-    in_r = st.slider("Rating Buku", 0.0, 5.0, 4.2)
-    btn_predict = st.button("Hitung & Dapatkan Insight")
+    available_genres = sorted(df_raw['genre'].unique()) if not df_raw.empty else ["Fiction"]
+    in_g = st.selectbox("Pilih Genre:", available_genres)
+    in_u = st.number_input("Target Unit Terjual", value=100, min_value=1)
+    in_r = st.slider("Target Rating", 0.0, 5.0, 4.2)
+    btn_predict = st.button("Hitung Estimasi Pendapatan")
 
 with col_p2:
     if btn_predict and not df_raw.empty:
-        # Menyiapkan data untuk AI (Mengubah teks genre menjadi angka)
+        # Menyiapkan Model ML
         le = LabelEncoder()
         df_ml = df_raw.copy()
-        df_ml['genre_encoded'] = le.fit_transform(df_ml['genre'])
+        df_ml['genre_enc'] = le.fit_transform(df_ml['genre'])
         
-        # Variabel X sekarang melibatkan Genre, Units, dan Rating
-        X = df_ml[['genre_encoded', 'units_sold', 'book_average_rating']]
+        X = df_ml[['genre_enc', 'units_sold', 'book_average_rating']]
         y = df_ml['gross_sale']
         
         model = LinearRegression().fit(X, y)
         
-        # Encode genre yang dipilih user
+        # Prediksi berdasarkan input user
         try:
-            genre_val = le.transform([in_g])[0]
+            g_val = le.transform([in_g])[0]
+            prediction = model.predict([[g_val, in_u, in_r]])[0]
+            prediction = max(0, prediction)
         except:
-            genre_val = 0
-            
-        # Kalkulasi Prediksi
-        final_prediction = model.predict([[genre_val, in_u, in_r]])[0]
-        final_prediction = max(0, final_prediction) # Agar tidak minus
+            prediction = 0
         
-        st.metric(f"Estimasi Gross Sales ({in_g})", f"Rp {final_prediction:,.0f}")
+        st.metric(f"Estimasi Gross Sales ({in_g})", f"$ {prediction:,.2f}")
         
         try:
-            resp = model_ai.generate_content(f"Berikan strategi marketing syariah khusus untuk genre {in_g} dengan target profit Rp {final_prediction:,.0f}")
+            resp = model_ai.generate_content(f"Berikan strategi marketing global untuk buku {in_g} dengan target pendapatan ${prediction:,.2f}.")
             st.success(resp.text)
         except:
-            st.warning("Insight AI Gagal.")
+            st.warning("Insight AI Gagal dimuat.")
 
 st.divider()
 
 # =========================================================
-# BAGIAN 2: STRATEGIC HUB (TETAP SAMA SEPERTI INSTRUKSI SEBELUMNYA)
+# BAGIAN 2: STRATEGIC HUB (DOLLAR VERSION)
 # =========================================================
 st.title("🚀 Strategic Intelligence Hub")
 
 if not df_raw.empty:
     f1, f2 = st.columns(2)
     with f1:
-        sel_genre = st.selectbox("Filter Genre Dashboard:", ["Semua Genre"] + sorted(list(df_raw['genre'].unique())))
+        sel_genre = st.selectbox("Pilih Genre Dashboard:", ["Semua Genre"] + sorted(list(df_raw['genre'].unique())))
     with f2:
         list_bulan = df_raw['bulan_tahun'].unique().tolist()
         sel_month = st.selectbox("Pilih Bulan Transaksi:", ["Semua Bulan"] + list_bulan)
@@ -117,10 +114,10 @@ if not df_raw.empty:
     if sel_genre != "Semua Genre": df = df[df['genre'] == sel_genre]
     if sel_month != "Semua Bulan": df = df[df['bulan_tahun'] == sel_month]
 
-    # KPI Row
+    # KPI Row (Ubah ke Dollar)
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Market Valuation", f"Rp {df['gross_sale'].sum():,.0f}")
-    k2.metric("Circulation", f"{df['units_sold'].sum():,.0f}")
+    k1.metric("Market Valuation", f"$ {df['gross_sale'].sum():,.2f}")
+    k2.metric("Circulation", f"{df['units_sold'].sum():,.0f} Units")
     k3.metric("Profitability Index", "45.1%", "Rev/Gross")
     k4.metric("Brand Loyalty", f"{df['book_average_rating'].mean():.2f}/5")
 
@@ -131,7 +128,7 @@ if not df_raw.empty:
         st.subheader("Publisher Performance")
         col_g1, col_g2 = st.columns(2)
         with col_g1:
-            st.write("**Revenue by Publisher**")
+            st.write("**Revenue by Publisher ($)**")
             pub_rev = df.groupby('publisher')['gross_sale'].sum().nlargest(5).reset_index()
             st.bar_chart(data=pub_rev, x='publisher', y='gross_sale', color="#D2B48C")
         with col_g2:
@@ -140,7 +137,7 @@ if not df_raw.empty:
             st.bar_chart(data=pub_uni, x='publisher', y='units_sold', color="#8B4513")
     
     with t2:
-        st.subheader("Monthly Sales Trend")
+        st.subheader("Monthly Sales Trend ($)")
         monthly_trend = df.groupby('bulan_tahun')['gross_sale'].sum().reset_index()
         st.area_chart(data=monthly_trend.set_index('bulan_tahun'), color="#A0522D")
     
@@ -148,7 +145,6 @@ if not df_raw.empty:
         st.subheader("Rating vs Market Popularity")
         pop_data = df.groupby('genre').agg({'book_average_rating': 'mean', 'units_sold': 'sum'}).reset_index()
         st.area_chart(data=pop_data.set_index('genre'), color=["#5D4037", "#D2B48C"])
-        st.caption("Coklat Tua: Avg Rating | Coklat Muda: Total Units Sold")
 
     with t4:
         st.subheader("Top Performing Authors")
@@ -159,7 +155,7 @@ if not df_raw.empty:
 st.divider()
 
 # =========================================================
-# BAGIAN 3: DATABASE & TAMBAH DATA
+# BAGIAN 3: DATABASE & TAMBAH DATA (Input Dollar)
 # =========================================================
 st.title("📁 Database Management")
 tab_view, tab_add = st.tabs(["🗂️ View Table", "➕ Add Record"])
@@ -174,13 +170,13 @@ with tab_add:
         c1, c2 = st.columns(2)
         with c1:
             nt = st.text_input("Judul Buku")
-            na = st.text_input("Penulis (Author)")
-            ng = st.selectbox("Genre Baru", sorted(df_raw['genre'].unique()) if not df_raw.empty else ["Umum"])
+            na = st.text_input("Author")
+            ng = st.selectbox("Genre", sorted(df_raw['genre'].unique()) if not df_raw.empty else ["Fiction"])
             np = st.text_input("Publisher")
         with c2:
             nu = st.number_input("Units Sold", min_value=0)
             nr = st.number_input("Rating", 0.0, 5.0)
-            ns = st.number_input("Gross Sale", min_value=0)
+            ns = st.number_input("Gross Sale (USD)", min_value=0.0)
             ntgl = st.date_input("Tanggal Transaksi")
         
         if st.form_submit_button("Simpan Data"):
@@ -189,5 +185,5 @@ with tab_add:
                 "units_sold": nu, "book_average_rating": nr, "gross_sale": ns,
                 "tanggal_transaksi": str(ntgl)
             }).execute()
-            st.success("Data Berhasil Disimpan!")
+            st.success("Data Tersimpan dalam USD!")
             st.cache_data.clear()
